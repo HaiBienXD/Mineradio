@@ -417,6 +417,21 @@ async function handleSpotifySearch(keywords, limit) {
 }
 
 // ====================================================================
+//  Recommendations: Spotify
+// ====================================================================
+async function handleSpotifyRecommendations(seedTrackId, limit) {
+  limit = Math.max(1, Math.min(50, parseInt(limit || '20', 10) || 20));
+  console.log('[SpotifyRecommendations] seed:', seedTrackId, 'limit:', limit);
+  const data = await spotifyFetch('/recommendations', {
+    seed_tracks: seedTrackId,
+    limit,
+    market: 'VN',
+  });
+  const tracks = (data && data.tracks) ? data.tracks : [];
+  return tracks.map(mapSpotifyTrack).filter(Boolean);
+}
+
+// ====================================================================
 //  YouTube Search (for audio playback URLs)
 // ====================================================================
 async function scrapeYoutubeSearch(query, maxResults) {
@@ -2217,6 +2232,38 @@ const server = http.createServer(async (req, res) => {
       const data = await spotifyFetch('/tracks/' + id, { market: 'VN' });
       sendJSON(res, mapSpotifyTrack(data));
     } catch (err) { sendJSON(res, { error: err.message }, 500); }
+    return;
+  }
+
+  // ---- Spotify recommendations ----
+  if (pn === '/api/spotify/recommendations') {
+    try {
+      const seedId   = url.searchParams.get('seed_id') || '';
+      const name     = url.searchParams.get('name') || '';
+      const artist   = url.searchParams.get('artist') || '';
+      const limitVal = parseInt(url.searchParams.get('limit') || '20', 10) || 20;
+
+      let spotifyId = '';
+      if (seedId && seedId.length === 22) {
+        spotifyId = seedId;
+      } else if (name) {
+        const query = `${artist} ${name}`;
+        const searchRes = await handleSpotifySearch(query, 1);
+        if (searchRes && searchRes.length > 0) {
+          spotifyId = searchRes[0].id;
+        }
+      }
+
+      if (!spotifyId) {
+        sendJSON(res, { tracks: [] });
+        return;
+      }
+
+      const tracks = await handleSpotifyRecommendations(spotifyId, limitVal);
+      sendJSON(res, { tracks });
+    } catch (err) {
+      sendJSON(res, { error: err.message, tracks: [] }, 500);
+    }
     return;
   }
 

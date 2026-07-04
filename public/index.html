@@ -2278,6 +2278,7 @@ html.control-glass-svg-ok #visual-guide-btn:hover{
     <div class="queue-toolbar">
       <div id="play-mode-chip" class="queue-chip">顺序循环</div>
       <div style="display:flex;gap:6px">
+        <button class="fx-mini-btn ghost" onclick="loadRecommendationsForCurrent()" style="height:26px;padding:0 10px;font-size:11px">Đề xuất</button>
         <button class="fx-mini-btn ghost" onclick="cyclePlayMode()" style="height:26px;padding:0 10px;font-size:11px">切换模式</button>
         <button class="fx-mini-btn ghost" onclick="clearQueue()" style="height:26px;padding:0 10px;font-size:11px">清空</button>
       </div>
@@ -18477,8 +18478,43 @@ async function playQueueAt(idx, opts) {
     audio.onended = function(){
       if (token !== trackSwitchToken) return;
       finalizeListenSession(true);
-      if (playMode === 'single') setTimeout(function(){ playQueueAt(currentIdx, { autoRepeat: true }); }, 0);
-      else setTimeout(nextTrack, 0);
+      if (playMode === 'single') {
+        setTimeout(function(){ playQueueAt(currentIdx, { autoRepeat: true }); }, 0);
+      } else {
+        if (currentIdx === playQueue.length - 1 && playQueue.length > 0) {
+          var currentSong = playQueue[currentIdx];
+          showToast('Đang tải bài hát đề xuất...');
+          apiJson('/api/spotify/recommendations?seed_id=' + encodeURIComponent(currentSong.id || '') + '&name=' + encodeURIComponent(currentSong.name || '') + '&artist=' + encodeURIComponent(currentSong.artist || ''))
+            .then(function(res) {
+              if (res && res.tracks && res.tracks.length > 0) {
+                var existingIds = playQueue.map(function(s) { return s.id; });
+                var addedCount = 0;
+                res.tracks.forEach(function(track) {
+                  if (existingIds.indexOf(track.id) === -1) {
+                    playQueue.push(track);
+                    addedCount++;
+                  }
+                });
+                if (addedCount > 0) {
+                  showToast('Đã tự động thêm ' + addedCount + ' bài hát đề xuất!');
+                  safeRenderQueuePanel('append-recommendations');
+                  safeShelfRebuild('append-recommendations');
+                  setTimeout(nextTrack, 0);
+                } else {
+                  setTimeout(nextTrack, 0);
+                }
+              } else {
+                setTimeout(nextTrack, 0);
+              }
+            })
+            .catch(function(err) {
+              console.error('Failed to load recommendations:', err);
+              setTimeout(nextTrack, 0);
+            });
+        } else {
+          setTimeout(nextTrack, 0);
+        }
+      }
     };
     scheduleAudioResumePosition(audio, opts.resumeAt, token);
     audio.load();
@@ -18697,6 +18733,39 @@ function clearQueue() {
   updateCustomCoverButton();
   updateCustomLyricControls();
   updateEmptyHomeVisibility({ forceLoad: false });
+}
+function loadRecommendationsForCurrent() {
+  if (currentIdx < 0 || !playQueue.length) {
+    showToast('Hãy phát một bài hát trước khi nhận đề xuất');
+    return;
+  }
+  var currentSong = playQueue[currentIdx];
+  showToast('Đang tìm bài hát đề xuất...');
+  apiJson('/api/spotify/recommendations?seed_id=' + encodeURIComponent(currentSong.id || '') + '&name=' + encodeURIComponent(currentSong.name || '') + '&artist=' + encodeURIComponent(currentSong.artist || ''))
+    .then(function(res) {
+      if (res && res.tracks && res.tracks.length > 0) {
+        var existingIds = playQueue.map(function(s) { return s.id; });
+        var addedCount = 0;
+        res.tracks.forEach(function(track) {
+          if (existingIds.indexOf(track.id) === -1) {
+            playQueue.push(track);
+            addedCount++;
+          }
+        });
+        if (addedCount > 0) {
+          showToast('Đã thêm ' + addedCount + ' bài hát đề xuất vào hàng đợi!');
+          safeRenderQueuePanel('recommend-btn');
+          safeShelfRebuild('recommend-btn');
+        } else {
+          showToast('Không tìm thấy bài hát đề xuất mới (đã có trong hàng đợi)');
+        }
+      } else {
+        showToast('Không tìm thấy bài hát đề xuất phù hợp');
+      }
+    })
+    .catch(function(err) {
+      showToast('Lỗi tải đề xuất: ' + err.message);
+    });
 }
 function removeFromQueue(idx) {
   if (idx < 0 || idx >= playQueue.length) return;
